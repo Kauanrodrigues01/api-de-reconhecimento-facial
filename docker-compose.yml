@@ -1,0 +1,56 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: face_recognition_postgres
+    environment:
+      POSTGRES_DB: face_recognition_db
+      POSTGRES_USER: face_recognition_user
+      POSTGRES_PASSWORD: face_recognition_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U face_recognition_user -d face_recognition_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Django Application
+  web:
+    build: .
+    container_name: face_recognition_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./media:/app/media
+      - ./logs:/app/logs
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-docker-dev-key-change-in-production
+      - DATABASE_URL=postgresql://face_recognition_user:face_recognition_password@postgres:5432/face_recognition_db
+      - ALLOWED_HOSTS=*
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/swagger/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    command: >
+      sh -c "
+        python manage.py makemigrations &&
+        python manage.py migrate &&
+        python manage.py runserver 0.0.0.0:8000
+      "
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    driver: bridge
