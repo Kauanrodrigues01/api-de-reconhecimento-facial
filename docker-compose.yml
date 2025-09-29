@@ -35,12 +35,6 @@ services:
       retries: 5
     command: >
       sh -c "
-        echo 'Waiting for postgres...' &&
-        until python -c 'import psycopg2; psycopg2.connect(host=\"postgres\", port=5432, user=\"face_recognition_user\", password=\"face_recognition_password\", dbname=\"face_recognition_db\")' 2>/dev/null; do
-          echo 'Waiting for postgres to be ready...'
-          sleep 2
-        done &&
-        echo 'PostgreSQL is ready!' &&
         python manage.py makemigrations &&
         python manage.py migrate &&
         python manage.py runserver 0.0.0.0:8000
