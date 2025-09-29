@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Union
 import cv2
 import numpy as np
 from deepface import DeepFace
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 
 class FaceRecognitionService:
@@ -30,12 +30,12 @@ class FaceRecognitionService:
         "dlib": "dlib",  # Good quality
     }
 
-    # Distance thresholds for each model
+    # Distance thresholds for each model (adjusted for better consistency)
     DEFAULT_THRESHOLDS = {
-        "Facenet512": 0.30,
-        "ArcFace": 0.68,
-        "VGG-Face": 0.40,
-        "Facenet": 0.40,
+        "Facenet512": 0.35,  # Slightly more flexible for compressed images
+        "ArcFace": 0.72,     # Slightly more flexible for compressed images
+        "VGG-Face": 0.45,    # Slightly more flexible for compressed images
+        "Facenet": 0.45,     # Slightly more flexible for compressed images
     }
 
     def __init__(self, model_name: str = "facenet512", detector_backend: str = "mtcnn"):
@@ -49,6 +49,92 @@ class FaceRecognitionService:
         self.model_name = self.MODELS.get(model_name, "Facenet512")
         self.detector_backend = self.DETECTORS.get(detector_backend, "mtcnn")
         self.threshold = self.DEFAULT_THRESHOLDS.get(self.model_name, 0.40)
+
+    def preprocess_image(self, image: Union[str, np.ndarray], enhance_quality: bool = True) -> np.ndarray:
+        """
+        Preprocess image for better face recognition consistency
+
+        Args:
+            image: Path to image or numpy array
+            enhance_quality: Whether to apply quality enhancement
+
+        Returns:
+            Preprocessed numpy array
+        """
+        try:
+            # Load image
+            if isinstance(image, str):
+                img = cv2.imread(image)
+                if img is None:
+                    raise ValueError("Failed to load image from path")
+                # Convert BGR to RGB
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            else:
+                img = image.copy()
+                # Ensure RGB format
+                if len(img.shape) == 3 and img.shape[2] == 3:
+                    pass  # Already RGB
+                else:
+                    raise ValueError("Invalid image format")
+
+            # Convert to PIL for better processing
+            pil_img = Image.fromarray(img)
+
+            # Standardize image size (maintain aspect ratio)
+            # Resize to have max dimension of 1024 pixels
+            max_size = 1024
+            width, height = pil_img.size
+            if max(width, height) > max_size:
+                if width > height:
+                    new_width = max_size
+                    new_height = int((height * max_size) / width)
+                else:
+                    new_height = max_size
+                    new_width = int((width * max_size) / height)
+                pil_img = pil_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+            if enhance_quality:
+                # Enhance image quality for better recognition
+                # Slight sharpening
+                enhancer = ImageEnhance.Sharpness(pil_img)
+                pil_img = enhancer.enhance(1.1)
+
+                # Slight contrast enhancement
+                enhancer = ImageEnhance.Contrast(pil_img)
+                pil_img = enhancer.enhance(1.05)
+
+                # Slight brightness adjustment if too dark
+                enhancer = ImageEnhance.Brightness(pil_img)
+                # Convert to array to check brightness
+                temp_array = np.array(pil_img)
+                avg_brightness = np.mean(temp_array)
+                if avg_brightness < 80:  # If image is too dark
+                    brightness_factor = min(1.3, 100 / avg_brightness)
+                    pil_img = enhancer.enhance(brightness_factor)
+
+            # Convert back to numpy array
+            processed_img = np.array(pil_img)
+
+            # Apply histogram equalization to the luminance channel for better consistency
+            # Convert to YUV
+            yuv = cv2.cvtColor(processed_img, cv2.COLOR_RGB2YUV)
+
+            # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to Y channel
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            yuv[:, :, 0] = clahe.apply(yuv[:, :, 0])
+
+            # Convert back to RGB
+            processed_img = cv2.cvtColor(yuv, cv2.COLOR_YUV2RGB)
+
+            return processed_img
+
+        except Exception as e:
+            # If preprocessing fails, return original image
+            if isinstance(image, str):
+                img = cv2.imread(image)
+                return cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if img is not None else image
+            else:
+                return image
 
     def detect_faces(
         self, image: Union[str, np.ndarray], min_confidence: float = 0.9
@@ -74,8 +160,11 @@ class FaceRecognitionService:
             }
         """
         try:
+            # Preprocess image for better detection
+            processed_image = self.preprocess_image(image, enhance_quality=True)
+
             face_objs = DeepFace.extract_faces(
-                img_path=image,
+                img_path=processed_image,
                 detector_backend=self.detector_backend,
                 enforce_detection=False,
                 align=True,
@@ -118,8 +207,11 @@ class FaceRecognitionService:
             }
         """
         try:
+            # Preprocess image for better embedding generation
+            processed_image = self.preprocess_image(image, enhance_quality=True)
+
             embeddings = DeepFace.represent(
-                img_path=image,
+                img_path=processed_image,
                 model_name=self.model_name,
                 detector_backend=self.detector_backend,
                 enforce_detection=True,
@@ -176,9 +268,13 @@ class FaceRecognitionService:
             if threshold is None:
                 threshold = self.threshold
 
+            # Preprocess both images for better comparison consistency
+            processed_image1 = self.preprocess_image(image1, enhance_quality=True)
+            processed_image2 = self.preprocess_image(image2, enhance_quality=True)
+
             result = DeepFace.verify(
-                img1_path=image1,
-                img2_path=image2,
+                img1_path=processed_image1,
+                img2_path=processed_image2,
                 model_name=self.model_name,
                 detector_backend=self.detector_backend,
                 distance_metric="cosine",
@@ -219,6 +315,7 @@ class FaceRecognitionService:
         embedding1: List[float],
         embedding2: List[float],
         threshold: Optional[float] = None,
+        adaptive_threshold: bool = True,
     ) -> Dict:
         """
         Compare two face embeddings directly
@@ -227,13 +324,15 @@ class FaceRecognitionService:
             embedding1: First face embedding vector
             embedding2: Second face embedding vector
             threshold: Custom similarity threshold
+            adaptive_threshold: Whether to use adaptive threshold based on confidence
 
         Returns:
             {
                 'success': bool,
                 'is_same_person': bool,
                 'confidence': float,
-                'distance': float
+                'distance': float,
+                'threshold_used': float
             }
         """
         try:
@@ -252,7 +351,19 @@ class FaceRecognitionService:
             cosine_similarity = np.dot(embedding1_norm, embedding2_norm)
             distance = 1 - cosine_similarity
 
-            is_same = distance < threshold
+            # Adaptive threshold based on the quality of match
+            actual_threshold = threshold
+            if adaptive_threshold:
+                # If the distance is very close to threshold, be more flexible
+                if abs(distance - threshold) < 0.05:
+                    # Apply a small tolerance for borderline cases
+                    actual_threshold = threshold * 1.1  # 10% more flexible
+
+                # For very high confidence matches, be more strict
+                elif distance < threshold * 0.3:
+                    actual_threshold = threshold * 0.9  # 10% more strict
+
+            is_same = distance < actual_threshold
             confidence = max(0, min(100, (1 - distance) * 100))
 
             return {
@@ -260,7 +371,8 @@ class FaceRecognitionService:
                 "is_same_person": is_same,
                 "confidence": round(confidence, 2),
                 "distance": round(float(distance), 4),
-                "threshold_used": threshold,
+                "threshold_used": actual_threshold,
+                "original_threshold": threshold,
             }
 
         except Exception as e:
@@ -288,7 +400,10 @@ class FaceRecognitionService:
             fraud_indicators = []
             fraud_score = 0
 
-            # Load image
+            # Preprocess image for consistent analysis
+            processed_image = self.preprocess_image(image, enhance_quality=False)  # Don't enhance for fraud detection
+
+            # Load image for fraud analysis
             if isinstance(image, str):
                 img = cv2.imread(image)
             else:
@@ -297,8 +412,8 @@ class FaceRecognitionService:
             if img is None:
                 return {"success": False, "error": "Failed to load image"}
 
-            # Check 1: Face detection
-            detection = self.detect_faces(image, min_confidence=0.5)
+            # Check 1: Face detection (use processed image for better consistency)
+            detection = self.detect_faces(processed_image, min_confidence=0.5)
 
             if not detection["success"]:
                 fraud_indicators.append("face_detection_failed")
@@ -527,7 +642,7 @@ class FaceRecognitionService:
                     movement_scores.append(movement)
 
                 avg_movement = np.mean(movement_scores)
-                max_movement = np.max(movement_scores)
+                # max_movement = np.max(movement_scores)  # Not used currently
 
                 if avg_movement < min_movement_threshold:
                     fraud_indicators.append(f"insufficient_movement_{avg_movement:.1f}")

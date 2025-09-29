@@ -254,7 +254,7 @@ def face_login(request):
                 face_distance = getattr(request, '_face_distance', 0)
 
                 # Get fraud score for logging
-                face_service = FaceRecognitionService()
+                face_service = FaceRecognitionService(model_name="facenet512", detector_backend="mtcnn")
                 face_array = serializer._image_to_numpy(request.FILES['face_image'])
                 fraud_result = face_service.detect_fraud_in_image(face_array)
 
@@ -426,8 +426,8 @@ def add_face_embedding(request):
                 'message': 'Face image is required'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Initialize face recognition service
-        face_service = FaceRecognitionService()
+        # Initialize face recognition service with improved settings
+        face_service = FaceRecognitionService(model_name="facenet512", detector_backend="mtcnn")
 
         # Convert uploaded image to numpy array
         serializer = FaceLoginSerializer()
@@ -705,5 +705,217 @@ def convert_image_to_base64(request):
         return Response({
             'success': False,
             'message': 'Failed to convert image',
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@swagger_auto_schema(
+    method='get',
+    operation_description="Lista todos os usuários cadastrados no sistema",
+    operation_summary="Listar todos os usuários",
+    responses={
+        200: openapi.Response(
+            description="Lista de usuários obtida com sucesso",
+            examples={
+                "application/json": {
+                    "success": True,
+                    "users": [
+                        {
+                            "id": 1,
+                            "username": "usuario1",
+                            "email": "usuario1@example.com",
+                            "first_name": "João",
+                            "last_name": "Silva",
+                            "is_face_verified": True,
+                            "created_at": "2024-01-01T10:00:00Z"
+                        },
+                        {
+                            "id": 2,
+                            "username": "usuario2",
+                            "email": "usuario2@example.com",
+                            "first_name": "Maria",
+                            "last_name": "Santos",
+                            "is_face_verified": True,
+                            "created_at": "2024-01-02T10:00:00Z"
+                        }
+                    ],
+                    "total_users": 2
+                }
+            }
+        ),
+        500: openapi.Response(
+            description="Erro interno do servidor",
+            examples={
+                "application/json": {
+                    "success": False,
+                    "message": "Failed to list users",
+                    "error": "Database connection failed"
+                }
+            }
+        )
+    },
+    tags=['User Management']
+)
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def list_all_users(request):
+    """
+    List all registered users in the system
+    """
+    try:
+        users = User.objects.all().order_by('-date_joined')
+        serializer = UserSerializer(users, many=True)
+
+        return Response({
+            'success': True,
+            'users': serializer.data,
+            'total_users': users.count()
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': 'Failed to list users',
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@swagger_auto_schema(
+    method='delete',
+    operation_description="Remove todos os usuários cadastrados no sistema",
+    operation_summary="Remover todos os usuários",
+    responses={
+        200: openapi.Response(
+            description="Todos os usuários foram removidos com sucesso",
+            examples={
+                "application/json": {
+                    "success": True,
+                    "message": "All users deleted successfully",
+                    "deleted_count": 5
+                }
+            }
+        ),
+        500: openapi.Response(
+            description="Erro interno do servidor",
+            examples={
+                "application/json": {
+                    "success": False,
+                    "message": "Failed to delete all users",
+                    "error": "Database error"
+                }
+            }
+        )
+    },
+    tags=['User Management']
+)
+@api_view(['DELETE'])
+@permission_classes([AllowAny])
+def delete_all_users(request):
+    """
+    Delete all registered users from the system
+    """
+    try:
+        with transaction.atomic():
+            # Count users before deletion
+            user_count = User.objects.count()
+
+            # Delete all users
+            User.objects.all().delete()
+
+            return Response({
+                'success': True,
+                'message': 'All users deleted successfully',
+                'deleted_count': user_count
+            }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': 'Failed to delete all users',
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@swagger_auto_schema(
+    method='delete',
+    operation_description="Remove um usuário específico pelo ID",
+    operation_summary="Remover usuário específico",
+    manual_parameters=[
+        openapi.Parameter('user_id', openapi.IN_PATH, description="ID do usuário a ser removido", type=openapi.TYPE_INTEGER, required=True),
+    ],
+    responses={
+        200: openapi.Response(
+            description="Usuário removido com sucesso",
+            examples={
+                "application/json": {
+                    "success": True,
+                    "message": "User deleted successfully",
+                    "deleted_user": {
+                        "id": 1,
+                        "username": "usuario123",
+                        "email": "usuario@example.com"
+                    }
+                }
+            }
+        ),
+        404: openapi.Response(
+            description="Usuário não encontrado",
+            examples={
+                "application/json": {
+                    "success": False,
+                    "message": "User not found"
+                }
+            }
+        ),
+        500: openapi.Response(
+            description="Erro interno do servidor",
+            examples={
+                "application/json": {
+                    "success": False,
+                    "message": "Failed to delete user",
+                    "error": "Database error"
+                }
+            }
+        )
+    },
+    tags=['User Management']
+)
+@api_view(['DELETE'])
+@permission_classes([AllowAny])
+def delete_user(request, user_id):
+    """
+    Delete a specific user by ID
+    """
+    try:
+        # Get user by ID
+        user = User.objects.get(id=user_id)
+
+        # Store user data for response
+        deleted_user_data = {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email
+        }
+
+        # Delete user
+        with transaction.atomic():
+            user.delete()
+
+        return Response({
+            'success': True,
+            'message': 'User deleted successfully',
+            'deleted_user': deleted_user_data
+        }, status=status.HTTP_200_OK)
+
+    except User.DoesNotExist:
+        return Response({
+            'success': False,
+            'message': 'User not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    except Exception as e:
+        return Response({
+            'success': False,
+            'message': 'Failed to delete user',
             'error': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -50,8 +50,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             # Convert uploaded image to numpy array
             face_array = self._image_to_numpy(face_image)
 
-            # Initialize face recognition service
-            face_service = FaceRecognitionService()
+            # Initialize face recognition service with improved settings
+            face_service = FaceRecognitionService(model_name="facenet512", detector_backend="mtcnn")
 
             # Check for fraud
             fraud_result = face_service.detect_fraud_in_image(face_array)
@@ -104,7 +104,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     def _image_to_numpy(self, image_file):
         """
-        Convert uploaded image file to numpy array
+        Convert uploaded image file to numpy array with basic preprocessing
         """
         try:
             # Open image using PIL
@@ -115,7 +115,13 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
                 image = image.convert("RGB")
 
             # Convert to numpy array
-            return np.array(image)
+            img_array = np.array(image)
+
+            # Apply basic preprocessing for better consistency
+            face_service = FaceRecognitionService()
+            processed_array = face_service.preprocess_image(img_array, enhance_quality=True)
+
+            return processed_array
 
         except Exception as e:
             raise ValueError(f"Failed to process image file: {str(e)}")
@@ -191,8 +197,8 @@ class FaceLoginSerializer(serializers.Serializer):
             # Convert face image to numpy array
             face_array = self._image_to_numpy(face_image)
 
-            # Initialize face recognition service
-            face_service = FaceRecognitionService()
+            # Initialize face recognition service with improved settings
+            face_service = FaceRecognitionService(model_name="facenet512", detector_backend="mtcnn")
 
             # Generate embedding for provided face
             embedding_result = face_service.generate_embedding(face_array)
@@ -210,7 +216,7 @@ class FaceLoginSerializer(serializers.Serializer):
                 comparison = face_service.compare_embeddings(
                     new_embedding,
                     stored_embedding,
-                    threshold=0.4  # You can adjust this threshold
+                    threshold=None  # Use the improved default threshold for the model
                 )
 
                 if comparison["success"] and comparison["is_same_person"]:
@@ -228,7 +234,7 @@ class FaceLoginSerializer(serializers.Serializer):
 
     def _image_to_numpy(self, image_file):
         """
-        Convert uploaded image file to numpy array
+        Convert uploaded image file to numpy array with basic preprocessing
         """
         try:
             # Open image using PIL
@@ -239,7 +245,13 @@ class FaceLoginSerializer(serializers.Serializer):
                 image = image.convert("RGB")
 
             # Convert to numpy array
-            return np.array(image)
+            img_array = np.array(image)
+
+            # Apply basic preprocessing for better consistency
+            face_service = FaceRecognitionService()
+            processed_array = face_service.preprocess_image(img_array, enhance_quality=True)
+
+            return processed_array
 
         except Exception as e:
             raise ValueError(f"Failed to process image file: {str(e)}")
