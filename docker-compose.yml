@@ -12,11 +12,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U face_recognition_user -d face_recognition_db"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
 
   # Django Application
   web:
@@ -34,7 +29,6 @@ services:
       - ALLOWED_HOSTS=*
     depends_on:
       postgres:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/swagger/"]
