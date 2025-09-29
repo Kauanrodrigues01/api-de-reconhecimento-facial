@@ -451,13 +451,15 @@ class FaceRecognitionService:
                 fraud_indicators.append(f"low_contrast_{contrast:.1f}")
                 fraud_score += 5
 
+            # Get image dimensions first for later use
+            img_height, img_width = img.shape[:2]
+
             # Check 5: Face size ratio
             if detection["faces_detected"] == 1:
                 face = detection["faces"][0]
                 face_area = face["facial_area"]
                 face_width = face_area["w"]
                 face_height = face_area["h"]
-                img_height, img_width = img.shape[:2]
 
                 face_ratio = (face_width * face_height) / (img_width * img_height)
 
