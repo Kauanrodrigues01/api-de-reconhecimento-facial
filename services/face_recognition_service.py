@@ -1,5 +1,3 @@
-import base64
-from io import BytesIO
 from typing import Dict, List, Optional, Union
 
 import cv2
@@ -128,7 +126,7 @@ class FaceRecognitionService:
 
             return processed_img
 
-        except Exception as e:
+        except Exception:
             # If preprocessing fails, return original image
             if isinstance(image, str):
                 img = cv2.imread(image)
@@ -163,12 +161,31 @@ class FaceRecognitionService:
             # Preprocess image for better detection
             processed_image = self.preprocess_image(image, enhance_quality=True)
 
-            face_objs = DeepFace.extract_faces(
-                img_path=processed_image,
-                detector_backend=self.detector_backend,
-                enforce_detection=False,
-                align=True,
-            )
+            # Try with primary detector first
+            try:
+                face_objs = DeepFace.extract_faces(
+                    img_path=processed_image,
+                    detector_backend=self.detector_backend,
+                    enforce_detection=False,
+                    align=True,
+                )
+            except Exception:
+                # If primary detector fails, try with more robust opencv detector
+                try:
+                    face_objs = DeepFace.extract_faces(
+                        img_path=processed_image,
+                        detector_backend="opencv",
+                        enforce_detection=False,
+                        align=True,
+                    )
+                except Exception:
+                    # Last resort: try with original image and no alignment
+                    face_objs = DeepFace.extract_faces(
+                        img_path=image if isinstance(image, np.ndarray) else processed_image,
+                        detector_backend="opencv",
+                        enforce_detection=False,
+                        align=False,
+                    )
 
             # Filter by confidence
             valid_faces = []
@@ -210,13 +227,34 @@ class FaceRecognitionService:
             # Preprocess image for better embedding generation
             processed_image = self.preprocess_image(image, enhance_quality=True)
 
-            embeddings = DeepFace.represent(
-                img_path=processed_image,
-                model_name=self.model_name,
-                detector_backend=self.detector_backend,
-                enforce_detection=True,
-                align=True,
-            )
+            # Try with strict detection first
+            try:
+                embeddings = DeepFace.represent(
+                    img_path=processed_image,
+                    model_name=self.model_name,
+                    detector_backend=self.detector_backend,
+                    enforce_detection=True,
+                    align=True,
+                )
+            except Exception:
+                # If strict detection fails, try with more flexible settings
+                try:
+                    embeddings = DeepFace.represent(
+                        img_path=processed_image,
+                        model_name=self.model_name,
+                        detector_backend="opencv",  # More flexible detector
+                        enforce_detection=False,
+                        align=True,
+                    )
+                except Exception:
+                    # Last resort: try without alignment
+                    embeddings = DeepFace.represent(
+                        img_path=processed_image,
+                        model_name=self.model_name,
+                        detector_backend="opencv",
+                        enforce_detection=False,
+                        align=False,
+                    )
 
             if not embeddings or len(embeddings) == 0:
                 return {"success": False, "error": "No face detected in image"}
@@ -501,7 +539,7 @@ class FaceRecognitionService:
             # Check for unnatural color distribution
             hist_variance = np.var([hist_b.std(), hist_g.std(), hist_r.std()])
             if hist_variance > 50000:
-                fraud_indicators.append(f"abnormal_color_distribution")
+                fraud_indicators.append("abnormal_color_distribution")
                 fraud_score += 5
 
             # Determine risk level
@@ -604,7 +642,7 @@ class FaceRecognitionService:
                         emb_result = self.generate_embedding(frame)
                         if emb_result["success"]:
                             embeddings.append(emb_result["embedding"])
-                    except:
+                    except Exception:
                         pass
 
             cap.release()
@@ -653,7 +691,7 @@ class FaceRecognitionService:
                 # Check if movement is too uniform (might be looping video)
                 movement_std = np.std(movement_scores)
                 if movement_std < 2 and len(movement_scores) > 3:
-                    fraud_indicators.append(f"uniform_movement_pattern")
+                    fraud_indicators.append("uniform_movement_pattern")
                     fraud_score += 20
 
             # Analysis 4: Face embedding consistency
