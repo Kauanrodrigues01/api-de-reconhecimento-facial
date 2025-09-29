@@ -1,18 +1,4 @@
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: face_recognition_postgres
-    environment:
-      POSTGRES_DB: face_recognition_db
-      POSTGRES_USER: face_recognition_user
-      POSTGRES_PASSWORD: face_recognition_password
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-
   # Django Application
   web:
     build: .
@@ -25,7 +11,7 @@ services:
     environment:
       - DEBUG=True
       - SECRET_KEY=django-insecure-docker-dev-key-change-in-production
-      - DATABASE_URL=postgresql://face_recognition_user:face_recognition_password@postgres:5432/face_recognition_db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://face_recognition_user:face_recognition_password@postgres:5432/face_recognition_db}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
     restart: unless-stopped
     healthcheck:
