@@ -27,9 +27,6 @@ services:
       - SECRET_KEY=django-insecure-docker-dev-key-change-in-production
       - DATABASE_URL=postgresql://face_recognition_user:face_recognition_password@postgres:5432/face_recognition_db
       - ALLOWED_HOSTS=*
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/swagger/"]
